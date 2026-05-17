@@ -14,8 +14,18 @@ function loadStore() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || defaultStore(); } catch { return defaultStore(); }
 }
 function saveStore(data) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(data));
+  // Always persist locally first for instant UX
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
   broadcast?.postMessage({ type: "sync", data });
+
+  // Fire-and-forget remote save (Vercel API will proxy to Supabase when configured)
+  try {
+    fetch('/api/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: STORE_KEY, value: data })
+    }).catch(() => {});
+  } catch (_) {}
 }
 function defaultStore() {
   return { sessions: [], leaderboard: [], dealerHands: [], currentSession: null, players: [] };
@@ -79,6 +89,22 @@ export default function PokerApp() {
     const handler = (e) => { if (e.data?.type === "sync") { setStore(e.data.data); } };
     broadcast.addEventListener("message", handler);
     return () => broadcast.removeEventListener("message", handler);
+  }, []);
+
+  // Try loading remote store from server (Vercel API -> Supabase). Falls back to localStorage.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/store?key=${encodeURIComponent(STORE_KEY)}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (mounted && json?.value) setStore(json.value);
+      } catch (e) {
+        // ignore - remote not configured or offline
+      }
+    })();
+    return () => { mounted = false; };
   }, []);
 
   const update = useCallback((fn) => {
