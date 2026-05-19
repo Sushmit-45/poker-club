@@ -155,7 +155,7 @@ export default function PokerApp() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f0a0a", color: "#e8e0d8", fontFamily: "'Courier New', 'Monaco', 'Menlo', monospace" }}>
+    <div style={{ minHeight: "100vh", background: "#0f0a0a", color: "#e8e0d8" }}>
       {/* FELT TEXTURE OVERLAY */}
       <div style={{ position: "fixed", inset: 0, backgroundImage: "radial-gradient(ellipse at 50% 0%, #1a0a0a 0%, #0f0a0a 70%)", pointerEvents: "none", zIndex: 0 }} />
 
