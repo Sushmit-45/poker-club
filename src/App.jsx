@@ -13,20 +13,50 @@ const broadcast = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel
 function loadStore() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || defaultStore(); } catch { return defaultStore(); }
 }
-function saveStore(data) {
-  // Always persist locally first for instant UX
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
-  broadcast?.postMessage({ type: "sync", data });
+// Debounced, retried remote save queue
+let __saveTimer = null;
+let __pendingRemote = null;
 
-  // Fire-and-forget remote save (Vercel API will proxy to Supabase when configured)
+async function __processRemoteSave() {
+  if (!__pendingRemote) return;
+  const item = __pendingRemote;
+  if (!navigator.onLine) {
+    // try again later
+    __saveTimer = setTimeout(__processRemoteSave, 3000);
+    return;
+  }
   try {
-    fetch('/api/store', {
+    const res = await fetch('/api/store', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: STORE_KEY, value: data })
-    }).catch(() => {});
-  } catch (_) {}
+      body: JSON.stringify({ key: STORE_KEY, value: item.data })
+    });
+    if (!res.ok) throw new Error('remote save failed');
+    __pendingRemote = null;
+  } catch (e) {
+    item.attempts = (item.attempts || 0) + 1;
+    if (item.attempts < 6) {
+      const backoff = Math.min(30000, 1000 * 2 ** item.attempts);
+      __saveTimer = setTimeout(__processRemoteSave, backoff);
+    }
+    // if too many attempts, keep it around for manual retry later
+  }
 }
+
+function saveStore(data) {
+  // Persist locally first for instant UX
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
+  broadcast?.postMessage({ type: 'sync', data });
+
+  // Schedule debounced remote save (replace any pending)
+  __pendingRemote = { data, attempts: 0 };
+  if (__saveTimer) clearTimeout(__saveTimer);
+  __saveTimer = setTimeout(__processRemoteSave, 1000);
+}
+
+// Retry pending saves when back online or when tab becomes visible
+window.addEventListener && window.addEventListener('online', () => { if (!__pendingRemote) return; __processRemoteSave(); });
+document.addEventListener && document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && __pendingRemote) __processRemoteSave(); });
 function defaultStore() {
   return { sessions: [], leaderboard: [], dealerHands: [], currentSession: null, players: [] };
 }
