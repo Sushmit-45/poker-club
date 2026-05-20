@@ -8,6 +8,7 @@ const CHIP_COLORS = { green: { value: 10, color: "#22c55e", label: "Green" }, re
 
 // ─── STORAGE + SYNC ───────────────────────────────────────────────────────────
 const STORE_KEY = "poker_app_v3";
+const AUTH_KEY = "poker_admin_auth";
 const broadcast = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("poker_sync") : null;
 
 function loadStore() {
@@ -52,6 +53,19 @@ function saveStore(data) {
   __pendingRemote = { data, attempts: 0 };
   if (__saveTimer) clearTimeout(__saveTimer);
   __saveTimer = setTimeout(__processRemoteSave, 1000);
+}
+
+async function loginCheck(username, password) {
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: username, pass: password })
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(json?.error || 'Login failed');
+  }
+  return true;
 }
 
 // Retry pending saves when back online or when tab becomes visible
@@ -113,6 +127,11 @@ export default function PokerApp() {
   const [store, setStore] = useState(loadStore);
   const [page, setPage] = useState("home");
   const [activeSession, setActiveSession] = useState(null);
+  const [loggedIn, setLoggedIn] = useState(() => typeof window !== 'undefined' && localStorage.getItem(AUTH_KEY) === 'true');
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
 
   useEffect(() => {
     if (!broadcast) return;
@@ -154,6 +173,46 @@ export default function PokerApp() {
     { key: "dealer", label: "The Dealer", icon: "🎩" },
   ];
 
+  const handleLogin = async () => {
+    setLoginError('');
+    if (!loginUser.trim() || !loginPass.trim()) {
+      setLoginError('Enter both user and password.');
+      return;
+    }
+    setLoginLoading(true);
+    try {
+      await loginCheck(loginUser.trim(), loginPass);
+      localStorage.setItem(AUTH_KEY, 'true');
+      setLoggedIn(true);
+    } catch (err) {
+      setLoginError(err.message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(AUTH_KEY);
+    setLoggedIn(false);
+    setLoginUser('');
+    setLoginPass('');
+    setLoginError('');
+  };
+
+  if (!loggedIn) {
+    return (
+      <LoginPage
+        user={loginUser}
+        pass={loginPass}
+        error={loginError}
+        loading={loginLoading}
+        onUserChange={setLoginUser}
+        onPassChange={setLoginPass}
+        onSubmit={handleLogin}
+      />
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f0a0a", color: "#e8e0d8" }}>
       {/* FELT TEXTURE OVERLAY */}
@@ -165,12 +224,15 @@ export default function PokerApp() {
           <span style={{ fontSize: 22 }}>♠</span>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: 2, color: "#c9a84c", textTransform: "uppercase" }}>AllInForBluff</span>
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: 'center' }}>
           {navItems.map(n => (
             <button key={n.key} onClick={() => { setPage(n.key); setActiveSession(null); }} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: page === n.key ? "#c9a84c" : "transparent", color: page === n.key ? "#0a0f1a" : "#9ca3af", fontWeight: page === n.key ? 700 : 400, cursor: "pointer", fontSize: 13, transition: "all 0.2s" }}>
               {n.icon} {n.label}
             </button>
           ))}
+          <button onClick={handleLogout} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#2d2d33", color: "#fda4af", cursor: "pointer", fontSize: 13, transition: "all 0.2s" }}>
+            Logout
+          </button>
         </div>
       </nav>
 
@@ -180,6 +242,37 @@ export default function PokerApp() {
         {page === "players" && <PlayersPage store={store} update={update} />}
         {page === "leaderboard" && <LeaderboardPage store={store} />}
         {page === "dealer" && <DealerPage store={store} update={update} />}
+      </div>
+    </div>
+  );
+}
+
+function LoginPage({ user, pass, onUserChange, onPassChange, onSubmit, loading, error }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f0a0a', color: '#e8e0d8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ width: '100%', maxWidth: 420, background: '#16171d', border: '1px solid #3d1515', borderRadius: 20, padding: 32, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <div style={{ fontSize: 48, color: '#c9a84c' }}>♠</div>
+          <h1 style={{ fontSize: 28, margin: '12px 0 6px', color: '#e8e0d8' }}>Admin login</h1>
+          <p style={{ fontSize: 14, color: '#9ca3af', margin: 0 }}>Enter the single admin credentials to unlock editing.</p>
+        </div>
+        {error && (
+          <div style={{ marginBottom: 18, padding: '10px 14px', background: '#33161c', color: '#fca5a5', borderRadius: 10, fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+        <label style={labelStyle}>User ID
+          <input value={user} onChange={e => onUserChange(e.target.value)} placeholder="admin" style={inputStyle} autoComplete="username" />
+        </label>
+        <label style={{ ...labelStyle, marginTop: 12 }}>Password
+          <input type="password" value={pass} onChange={e => onPassChange(e.target.value)} placeholder="••••••••" style={inputStyle} autoComplete="current-password" />
+        </label>
+        <button onClick={onSubmit} disabled={loading} style={{ ...btnStyle('gold'), width: '100%', marginTop: 18 }}>
+          {loading ? 'Checking...' : 'Login'}
+        </button>
+        <div style={{ marginTop: 14, fontSize: 12, color: '#6b7280', textAlign: 'center' }}>
+          Admin access is required to edit players, sessions, dealer hands, and leaderboard data.
+        </div>
       </div>
     </div>
   );

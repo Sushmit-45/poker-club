@@ -19,6 +19,8 @@ create table kv_store (
   - `SUPABASE_URL` — your Supabase project URL
   - `SUPABASE_SERVICE_KEY` — your Supabase service role key (server-only)
   - `SUPABASE_KV_KEY` — optional. Default is `poker_app_v3`. Use to lock which key the API accepts.
+  - `ADMIN_USER` — the single admin username you will use to log in.
+  - `ADMIN_PASS` — the single admin password used to unlock edit access.
 
 3) Deploy
 - Push to GitHub (already connected); Vercel will build and deploy automatically.
