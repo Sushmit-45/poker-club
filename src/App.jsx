@@ -128,6 +128,7 @@ export default function PokerApp() {
   const [page, setPage] = useState("home");
   const [activeSession, setActiveSession] = useState(null);
   const [loggedIn, setLoggedIn] = useState(() => typeof window !== 'undefined' && localStorage.getItem(AUTH_KEY) === 'true');
+  const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -184,6 +185,7 @@ export default function PokerApp() {
       await loginCheck(loginUser.trim(), loginPass);
       localStorage.setItem(AUTH_KEY, 'true');
       setLoggedIn(true);
+      setShowLoginPanel(false);
     } catch (err) {
       setLoginError(err.message);
     } finally {
@@ -198,20 +200,6 @@ export default function PokerApp() {
     setLoginPass('');
     setLoginError('');
   };
-
-  if (!loggedIn) {
-    return (
-      <LoginPage
-        user={loginUser}
-        pass={loginPass}
-        error={loginError}
-        loading={loginLoading}
-        onUserChange={setLoginUser}
-        onPassChange={setLoginPass}
-        onSubmit={handleLogin}
-      />
-    );
-  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0a0a", color: "#e8e0d8" }}>
@@ -230,60 +218,90 @@ export default function PokerApp() {
               {n.icon} {n.label}
             </button>
           ))}
-          <button onClick={handleLogout} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#2d2d33", color: "#fda4af", cursor: "pointer", fontSize: 13, transition: "all 0.2s" }}>
-            Logout
-          </button>
+          {loggedIn ? (
+            <button onClick={handleLogout} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#2d2d33", color: "#fda4af", cursor: "pointer", fontSize: 13, transition: "all 0.2s" }}>
+              Logout
+            </button>
+          ) : (
+            <button onClick={() => setShowLoginPanel(true)} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#3b82f6", color: "#f8fafc", cursor: "pointer", fontSize: 13, transition: "all 0.2s" }}>
+              Admin Login
+            </button>
+          )}
         </div>
       </nav>
 
       <div style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "24px 16px" }}>
-        {page === "home" && !activeSession && <SessionsPage store={store} update={update} setActiveSession={id => { setActiveSession(id); setPage("session"); }} />}
-        {page === "session" && session && <SessionPage session={session} store={store} update={update} onBack={() => { setPage("home"); setActiveSession(null); }} />}
-        {page === "players" && <PlayersPage store={store} update={update} />}
+        {showLoginPanel && (
+          <div style={{ marginBottom: 24 }}>
+            <LoginPage
+              user={loginUser}
+              pass={loginPass}
+              error={loginError}
+              loading={loginLoading}
+              onUserChange={setLoginUser}
+              onPassChange={setLoginPass}
+              onSubmit={handleLogin}
+              onClose={() => setShowLoginPanel(false)}
+            />
+          </div>
+        )}
+
+        {!loggedIn && (
+          <div style={{ marginBottom: 24, padding: 16, borderRadius: 14, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span>Viewing only — admin login is required to edit sessions, players, dealer hands, and leaderboard data.</span>
+            <button onClick={() => setShowLoginPanel(true)} style={{ ...btnStyle('gold'), fontSize: 13, padding: '8px 14px' }}>Admin Login</button>
+          </div>
+        )}
+
+        {page === "home" && !activeSession && <SessionsPage store={store} update={update} setActiveSession={id => { setActiveSession(id); setPage("session"); }} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
+        {page === "session" && session && <SessionPage session={session} store={store} update={update} onBack={() => { setPage("home"); setActiveSession(null); }} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
+        {page === "players" && <PlayersPage store={store} update={update} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
         {page === "leaderboard" && <LeaderboardPage store={store} />}
-        {page === "dealer" && <DealerPage store={store} update={update} />}
+        {page === "dealer" && <DealerPage store={store} update={update} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
       </div>
     </div>
   );
 }
 
-function LoginPage({ user, pass, onUserChange, onPassChange, onSubmit, loading, error }) {
+function LoginPage({ user, pass, onUserChange, onPassChange, onSubmit, loading, error, onClose }) {
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0a0a', color: '#e8e0d8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ width: '100%', maxWidth: 420, background: '#16171d', border: '1px solid #3d1515', borderRadius: 20, padding: 32, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <div style={{ fontSize: 48, color: '#c9a84c' }}>♠</div>
-          <h1 style={{ fontSize: 28, margin: '12px 0 6px', color: '#e8e0d8' }}>Admin login</h1>
-          <p style={{ fontSize: 14, color: '#9ca3af', margin: 0 }}>Enter the single admin credentials to unlock editing.</p>
+    <div style={{ width: '100%', margin: '0 auto', maxWidth: 460, background: '#16171d', border: '1px solid #3d1515', borderRadius: 20, padding: 24, boxShadow: '0 30px 70px rgba(0,0,0,0.35)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+        <div>
+          <div style={{ fontSize: 42, color: '#c9a84c' }}>♠</div>
+          <h1 style={{ fontSize: 24, margin: '10px 0 4px', color: '#e8e0d8' }}>Admin login</h1>
+          <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Login to unlock editing features.</p>
         </div>
-        {error && (
-          <div style={{ marginBottom: 18, padding: '10px 14px', background: '#33161c', color: '#fca5a5', borderRadius: 10, fontSize: 13 }}>
-            {error}
-          </div>
-        )}
-        <label style={labelStyle}>User ID
-          <input value={user} onChange={e => onUserChange(e.target.value)} placeholder="admin" style={inputStyle} autoComplete="username" />
-        </label>
-        <label style={{ ...labelStyle, marginTop: 12 }}>Password
-          <input type="password" value={pass} onChange={e => onPassChange(e.target.value)} placeholder="••••••••" style={inputStyle} autoComplete="current-password" />
-        </label>
-        <button onClick={onSubmit} disabled={loading} style={{ ...btnStyle('gold'), width: '100%', marginTop: 18 }}>
-          {loading ? 'Checking...' : 'Login'}
-        </button>
-        <div style={{ marginTop: 14, fontSize: 12, color: '#6b7280', textAlign: 'center' }}>
-          Admin access is required to edit players, sessions, dealer hands, and leaderboard data.
+        <button onClick={onClose} style={{ ...btnStyle('ghost', 'sm'), color: '#fca5a5' }}>✕</button>
+      </div>
+      {error && (
+        <div style={{ marginBottom: 18, padding: '10px 14px', background: '#33161c', color: '#fca5a5', borderRadius: 10, fontSize: 13 }}>
+          {error}
         </div>
+      )}
+      <label style={labelStyle}>User ID
+        <input value={user} onChange={e => onUserChange(e.target.value)} placeholder="admin" style={inputStyle} autoComplete="username" />
+      </label>
+      <label style={{ ...labelStyle, marginTop: 12 }}>Password
+        <input type="password" value={pass} onChange={e => onPassChange(e.target.value)} placeholder="••••••••" style={inputStyle} autoComplete="current-password" />
+      </label>
+      <button onClick={onSubmit} disabled={loading} style={{ ...btnStyle('gold'), width: '100%', marginTop: 18 }}>
+        {loading ? 'Checking...' : 'Login'}
+      </button>
+      <div style={{ marginTop: 14, fontSize: 12, color: '#6b7280', textAlign: 'center' }}>
+        Admin access is required to edit players, sessions, dealer hands, and leaderboard data.
       </div>
     </div>
   );
 }
 
 // ─── PLAYERS DIRECTORY PAGE ──────────────────────────────────────────────────
-function PlayersPage({ store, update }) {
+function PlayersPage({ store, update, isAdmin, promptLogin }) {
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
 
   const addPlayer = () => {
+    if (!isAdmin) { promptLogin(); return; }
     if (!name.trim()) return;
     const player = { id: uid(), name: name.trim(), joinDate: new Date().toISOString() };
     update(prev => ({ ...prev, players: [player, ...prev.players] }));
@@ -292,6 +310,7 @@ function PlayersPage({ store, update }) {
   };
 
   const deletePlayer = (id) => {
+    if (!isAdmin) { promptLogin(); return; }
     if (confirm("Are you sure?")) {
       update(prev => ({ ...prev, players: prev.players.filter(p => p.id !== id) }));
     }
@@ -301,10 +320,20 @@ function PlayersPage({ store, update }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, color: "#c9a84c", margin: 0, letterSpacing: 1 }}>👥 Players</h1>
-        <button onClick={() => setShowNew(true)} style={btnStyle("gold")}>+ Add Player</button>
+        {isAdmin ? (
+          <button onClick={() => setShowNew(true)} style={btnStyle("gold")}>+ Add Player</button>
+        ) : (
+          <button onClick={promptLogin} style={btnStyle("ghost")}>Admin login to edit</button>
+        )}
       </div>
 
-      {showNew && (
+      {!isAdmin && (
+        <div style={{ marginBottom: 18, padding: 14, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
+          Viewing only. Login as admin to add or remove players.
+        </div>
+      )}
+
+      {showNew && isAdmin && (
         <Card2 style={{ marginBottom: 24 }}>
           <h2 style={{ color: "#c9a84c", fontSize: 16, margin: "0 0 16px" }}>New Player</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -334,7 +363,7 @@ function PlayersPage({ store, update }) {
                   <div style={{ fontSize: 11, color: "#6b7280" }}>Added {new Date(p.joinDate).toLocaleDateString("en-IN")}</div>
                 </div>
               </div>
-              <button onClick={() => deletePlayer(p.id)} style={{ ...btnStyle("ghost", "sm"), color: "#fca5a5" }}>✕ Remove</button>
+              {isAdmin && <button onClick={() => deletePlayer(p.id)} style={{ ...btnStyle("ghost", "sm"), color: "#fca5a5" }}>✕ Remove</button>}
             </div>
           </Card2>
         ))}
@@ -344,13 +373,14 @@ function PlayersPage({ store, update }) {
 }
 
 // ─── SESSIONS LIST PAGE ───────────────────────────────────────────────────────
-function SessionsPage({ store, update, setActiveSession }) {
+function SessionsPage({ store, update, setActiveSession, isAdmin, promptLogin }) {
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
   const [buyIn, setBuyIn] = useState(20);
   const [ratio, setRatio] = useState(15);
 
   const createSession = () => {
+    if (!isAdmin) { promptLogin(); return; }
     if (!name.trim()) return;
     const s = { id: uid(), name: name.trim(), date: new Date().toISOString(), buyIn, chipRatio: ratio, players: [], closed: false };
     update(prev => ({ ...prev, sessions: [s, ...prev.sessions] }));
@@ -361,10 +391,20 @@ function SessionsPage({ store, update, setActiveSession }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, color: "#c9a84c", margin: 0, letterSpacing: 1 }}>♠ Sessions</h1>
-        <button onClick={() => setShowNew(true)} style={btnStyle("gold")}>+ New Session</button>
+        {isAdmin ? (
+          <button onClick={() => setShowNew(true)} style={btnStyle("gold")}>+ New Session</button>
+        ) : (
+          <button onClick={promptLogin} style={btnStyle("ghost")}>Admin login to edit</button>
+        )}
       </div>
 
-      {showNew && (
+      {!isAdmin && (
+        <div style={{ marginBottom: 18, padding: 14, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
+          Viewing only. Login as admin to create or edit sessions.
+        </div>
+      )}
+
+      {showNew && isAdmin && (
         <Card2 style={{ marginBottom: 24 }}>
           <h2 style={{ color: "#c9a84c", fontSize: 16, margin: "0 0 16px" }}>New Session</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -419,13 +459,14 @@ function SessionsPage({ store, update, setActiveSession }) {
 }
 
 // ─── SESSION DETAIL PAGE ──────────────────────────────────────────────────────
-function SessionPage({ session, store, update, onBack }) {
+function SessionPage({ session, store, update, onBack, isAdmin, promptLogin }) {
   const [selectedPlayer, setSelectedPlayer] = useState("");
   const [newBuyIn, setNewBuyIn] = useState(session.buyIn);
   const [showCashout, setShowCashout] = useState(null);
   const [showLoan, setShowLoan] = useState(null);
 
   const addPlayer = () => {
+    if (!isAdmin) { promptLogin(); return; }
     if (!selectedPlayer) return;
     const player = store.players.find(p => p.id === selectedPlayer);
     if (!player) return;
@@ -436,6 +477,7 @@ function SessionPage({ session, store, update, onBack }) {
   };
 
   const closeSession = () => {
+    if (!isAdmin) { promptLogin(); return; }
     const allCashedOut = session.players.every(p => p.cashout !== null);
     if (!allCashedOut) { alert("All players must cash out before closing."); return; }
     const results = session.players.map(p => ({ name: p.name, net: pnl(p), session: session.name, date: session.date }));
@@ -456,27 +498,36 @@ function SessionPage({ session, store, update, onBack }) {
           <div style={{ fontSize: 12, color: "#6b7280" }}>Buy-in: ₹{session.buyIn} | Ratio: 1:₹{session.chipRatio} chips | Pot: {rs(totalPot)}</div>
         </div>
         <div style={{ marginLeft: "auto" }}>
-          {!session.closed && <button onClick={closeSession} style={btnStyle("danger")}>Close & Record</button>}
+          {!session.closed && isAdmin && <button onClick={closeSession} style={btnStyle("danger")}>Close & Record</button>}
+          {!session.closed && !isAdmin && (
+            <button onClick={promptLogin} style={{ ...btnStyle('ghost', 'sm'), color: '#fca5a5' }}>Admin login to close</button>
+          )}
         </div>
       </div>
 
       {!session.closed && (
         <Card2 style={{ marginBottom: 20 }}>
           <h3 style={{ color: "#c9a84c", margin: "0 0 12px", fontSize: 14 }}>Add Player</h3>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <select value={selectedPlayer} onChange={e => setSelectedPlayer(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 140 }}>
-              <option value="">Select a player...</option>
-              {store.players.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "#9ca3af" }}>₹</span>
-              <input type="number" value={newBuyIn} onChange={e => setNewBuyIn(+e.target.value)} style={{ ...inputStyle, width: 80 }} />
-              <span style={{ fontSize: 11, color: "#6b7280" }}>= {newBuyIn * session.chipRatio} chips</span>
+          {!isAdmin ? (
+            <div style={{ padding: 18, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
+              Login as admin to assign players to this session.
             </div>
-            <button onClick={addPlayer} style={btnStyle("gold")}>+ Add</button>
-          </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select value={selectedPlayer} onChange={e => setSelectedPlayer(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 140 }}>
+                <option value="">Select a player...</option>
+                {store.players.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#9ca3af" }}>₹</span>
+                <input type="number" value={newBuyIn} onChange={e => setNewBuyIn(+e.target.value)} style={{ ...inputStyle, width: 80 }} />
+                <span style={{ fontSize: 11, color: "#6b7280" }}>= {newBuyIn * session.chipRatio} chips</span>
+              </div>
+              <button onClick={addPlayer} style={btnStyle("gold")}>+ Add</button>
+            </div>
+          )}
           {store.players.length === 0 && (
             <div style={{ marginTop: 12, fontSize: 12, color: "#fca5a5" }}>
               No players in directory. Go to the 👥 Players page to add some first.
@@ -487,14 +538,26 @@ function SessionPage({ session, store, update, onBack }) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {session.players.map(player => (
-          <PlayerRow key={player.id} player={player} session={session} update={update} showCashout={showCashout === player.id} showLoan={showLoan === player.id} onCashout={() => setShowCashout(showCashout === player.id ? null : player.id)} onLoan={() => setShowLoan(showLoan === player.id ? null : player.id)} onClosePanels={() => { setShowCashout(null); setShowLoan(null); }} />
+          <PlayerRow
+            key={player.id}
+            player={player}
+            session={session}
+            update={update}
+            showCashout={showCashout === player.id}
+            showLoan={showLoan === player.id}
+            onCashout={() => setShowCashout(showCashout === player.id ? null : player.id)}
+            onLoan={() => setShowLoan(showLoan === player.id ? null : player.id)}
+            onClosePanels={() => { setShowCashout(null); setShowLoan(null); }}
+            isAdmin={isAdmin}
+            promptLogin={promptLogin}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function PlayerRow({ player, session, update, showCashout, showLoan, onCashout, onLoan, onClosePanels }) {
+function PlayerRow({ player, session, update, showCashout, showLoan, onCashout, onLoan, onClosePanels, isAdmin, promptLogin }) {
   const [loanAmt, setLoanAmt] = useState(100);
   const [loanType, setLoanType] = useState("chips");
   const [cashChips, setCashChips] = useState({});
@@ -502,6 +565,7 @@ function PlayerRow({ player, session, update, showCashout, showLoan, onCashout, 
   const [cashoutMode, setCashoutMode] = useState("manual");
 
   const applyLoan = () => {
+    if (!isAdmin) { promptLogin(); return; }
     const chipVal = loanType === "chips" ? loanAmt : loanAmt * session.chipRatio;
     const rsVal = loanType === "rs" ? loanAmt : loanAmt / session.chipRatio;
     update(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === session.id ? { ...s, players: s.players.map(p => p.id === player.id ? { ...p, loans: p.loans + rsVal, chips: p.chips + chipVal } : p) } : s) }));
@@ -509,6 +573,7 @@ function PlayerRow({ player, session, update, showCashout, showLoan, onCashout, 
   };
 
   const applyCashout = () => {
+    if (!isAdmin) { promptLogin(); return; }
     let totalChips = 0;
     if (cashoutMode === "manual") totalChips = +manualChips;
     else totalChips = chipsTotal(cashChips);
@@ -544,10 +609,16 @@ function PlayerRow({ player, session, update, showCashout, showLoan, onCashout, 
               </div>
             </div>
           ) : (
-            !session.closed && <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={onLoan} style={btnStyle("ghost", "sm")}>+ Loan</button>
-              <button onClick={onCashout} style={btnStyle("gold", "sm")}>Cash Out</button>
-            </div>
+            !session.closed && (
+              isAdmin ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={onLoan} style={btnStyle("ghost", "sm")}>+ Loan</button>
+                  <button onClick={onCashout} style={btnStyle("gold", "sm")}>Cash Out</button>
+                </div>
+              ) : (
+                <button onClick={promptLogin} style={{ ...btnStyle("ghost", "sm"), color: "#fca5a5" }}>Admin login to edit</button>
+              )
+            )
           )}
         </div>
       </div>
@@ -683,7 +754,7 @@ function LeaderboardPage({ store }) {
 }
 
 // ─── DEALER PAGE ──────────────────────────────────────────────────────────────
-function DealerPage({ store, update }) {
+function DealerPage({ store, update, isAdmin, promptLogin }) {
   const [showAddHand, setShowAddHand] = useState(false);
   const [handPlayers, setHandPlayers] = useState([{ name: "", cards: [{ rank: "A", suit: "S" }, { rank: "K", suit: "H" }] }]);
   const [board, setBoard] = useState([
@@ -693,15 +764,34 @@ function DealerPage({ store, update }) {
   const [result, setResult] = useState("");
   const [handTitle, setHandTitle] = useState("");
 
-  const addHandPlayer = () => setHandPlayers(prev => [...prev, { name: "", cards: [{ rank: "A", suit: "S" }, { rank: "K", suit: "H" }] }]);
-  const removeHandPlayer = (i) => setHandPlayers(prev => prev.filter((_, j) => j !== i));
+  const addHandPlayer = () => {
+    if (!isAdmin) { promptLogin(); return; }
+    setHandPlayers(prev => [...prev, { name: "", cards: [{ rank: "A", suit: "S" }, { rank: "K", suit: "H" }] }]);
+  };
+  const removeHandPlayer = (i) => {
+    if (!isAdmin) { promptLogin(); return; }
+    setHandPlayers(prev => prev.filter((_, j) => j !== i));
+  };
 
-  const updateHandPlayer = (i, field, val) => setHandPlayers(prev => prev.map((p, j) => j === i ? { ...p, [field]: val } : p));
-  const updateHandPlayerCard = (pi, ci, field, val) => setHandPlayers(prev => prev.map((p, j) => j === pi ? { ...p, cards: p.cards.map((c, k) => k === ci ? { ...c, [field]: val } : c) } : p));
-  const updateBoard = (i, field, val) => setBoard(prev => prev.map((c, j) => j === i ? (c ? { ...c, [field]: val } : { rank: "A", suit: "S", [field]: val }) : c));
-  const toggleBoard = (i) => setBoard(prev => prev.map((c, j) => j === i ? (c ? null : { rank: "A", suit: "S" }) : c));
+  const updateHandPlayer = (i, field, val) => {
+    if (!isAdmin) { promptLogin(); return; }
+    setHandPlayers(prev => prev.map((p, j) => j === i ? { ...p, [field]: val } : p));
+  };
+  const updateHandPlayerCard = (pi, ci, field, val) => {
+    if (!isAdmin) { promptLogin(); return; }
+    setHandPlayers(prev => prev.map((p, j) => j === pi ? { ...p, cards: p.cards.map((c, k) => k === ci ? { ...c, [field]: val } : c) } : p));
+  };
+  const updateBoard = (i, field, val) => {
+    if (!isAdmin) { promptLogin(); return; }
+    setBoard(prev => prev.map((c, j) => j === i ? (c ? { ...c, [field]: val } : { rank: "A", suit: "S", [field]: val }) : c));
+  };
+  const toggleBoard = (i) => {
+    if (!isAdmin) { promptLogin(); return; }
+    setBoard(prev => prev.map((c, j) => j === i ? (c ? null : { rank: "A", suit: "S" }) : c));
+  };
 
   const saveHand = () => {
+    if (!isAdmin) { promptLogin(); return; }
     const hand = { id: uid(), title: handTitle, players: handPlayers, board, pot, result, date: new Date().toISOString() };
     update(prev => ({ ...prev, dealerHands: [hand, ...(prev.dealerHands || [])] }));
     setShowAddHand(false); setHandTitle(""); setResult(""); setPot("");
@@ -732,10 +822,20 @@ function DealerPage({ store, update }) {
       {/* Legendary Hands */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h2 style={{ color: "#c9a84c", fontSize: 18, margin: 0 }}>✨ Hands of Destiny</h2>
-        <button onClick={() => setShowAddHand(!showAddHand)} style={btnStyle("gold")}>+ Record a Hand</button>
+        {isAdmin ? (
+          <button onClick={() => setShowAddHand(!showAddHand)} style={btnStyle("gold")}>+ Record a Hand</button>
+        ) : (
+          <button onClick={promptLogin} style={btnStyle("ghost")}>Admin login to record</button>
+        )}
       </div>
 
-      {showAddHand && (
+      {!isAdmin && (
+        <div style={{ marginBottom: 18, padding: 14, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
+          Viewing only. Login as admin to record dealer hands.
+        </div>
+      )}
+
+      {showAddHand && isAdmin && (
         <Card2 style={{ marginBottom: 20 }}>
           <h3 style={{ color: "#c9a84c", margin: "0 0 16px" }}>New Legendary Hand</h3>
           <label style={labelStyle}>Hand Title / Story
