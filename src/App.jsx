@@ -248,7 +248,7 @@ export default function PokerApp() {
 
         {!loggedIn && (
           <div style={{ marginBottom: 24, padding: 16, borderRadius: 14, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <span>Viewing only — admin login is required to edit sessions, players, dealer hands, and leaderboard data.</span>
+            
             <button onClick={() => setShowLoginPanel(true)} style={{ ...btnStyle('gold'), fontSize: 13, padding: '8px 14px' }}>Admin Login</button>
           </div>
         )}
