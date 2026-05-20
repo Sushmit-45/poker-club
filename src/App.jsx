@@ -246,12 +246,7 @@ export default function PokerApp() {
           </div>
         )}
 
-        {!loggedIn && (
-          <div style={{ marginBottom: 24, padding: 16, borderRadius: 14, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            
-            <button onClick={() => setShowLoginPanel(true)} style={{ ...btnStyle('gold'), fontSize: 13, padding: '8px 14px' }}>Admin Login</button>
-          </div>
-        )}
+       
 
         {page === "home" && !activeSession && <SessionsPage store={store} update={update} setActiveSession={id => { setActiveSession(id); setPage("session"); }} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
         {page === "session" && session && <SessionPage session={session} store={store} update={update} onBack={() => { setPage("home"); setActiveSession(null); }} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
@@ -327,11 +322,7 @@ function PlayersPage({ store, update, isAdmin, promptLogin }) {
         )}
       </div>
 
-      {!isAdmin && (
-        <div style={{ marginBottom: 18, padding: 14, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
-          Viewing only. Login as admin to add or remove players.
-        </div>
-      )}
+      
 
       {showNew && isAdmin && (
         <Card2 style={{ marginBottom: 24 }}>
@@ -398,11 +389,7 @@ function SessionsPage({ store, update, setActiveSession, isAdmin, promptLogin })
         )}
       </div>
 
-      {!isAdmin && (
-        <div style={{ marginBottom: 18, padding: 14, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
-          Viewing only. Login as admin to create or edit sessions.
-        </div>
-      )}
+     
 
       {showNew && isAdmin && (
         <Card2 style={{ marginBottom: 24 }}>
@@ -829,11 +816,7 @@ function DealerPage({ store, update, isAdmin, promptLogin }) {
         )}
       </div>
 
-      {!isAdmin && (
-        <div style={{ marginBottom: 18, padding: 14, borderRadius: 12, background: '#11151f', border: '1px solid #2f3847', color: '#9ca3af' }}>
-          Viewing only. Login as admin to record dealer hands.
-        </div>
-      )}
+      
 
       {showAddHand && isAdmin && (
         <Card2 style={{ marginBottom: 20 }}>
