@@ -712,15 +712,21 @@ function SettlePage({ store, update, isAdmin, promptLogin }) {
   const transfers = session ? settlementTransfers(session.players) : [];
   const directoryFor = player => store.players.find(p => p.id === player.playerId) || store.players.find(p => p.name === player.name);
   const balance = session ? session.players.reduce((sum, p) => sum + pnl(p), 0) : 0;
+  const resetSettlement = () => {
+    if (!isAdmin) { promptLogin(); return; }
+    update(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === session.id ? { ...s, settlementCleared: !s.settlementCleared } : s) }));
+  };
   return <div>
     <div style={{ marginBottom: 22 }}>
       <h1 style={{ fontSize: 24, color: '#c9a84c', margin: '0 0 6px' }}>💸 Settle up</h1>
       <div style={{ fontSize: 13, color: '#9ca3af' }}>Minimal payment plan for a closed session. Scan the receiver’s QR code to pay.</div>
     </div>
-    {closed.length === 0 ? <div style={{ textAlign: 'center', color: '#6b7280', padding: '60px 0' }}>Close a session after everyone cashes out to create a settlement plan.</div> : <>
+    {closed.length === 0 ? <div style={{ textAlign: 'center', color: '#6b7280', padding: '32px 0' }}>Close a session after everyone cashes out to create a settlement plan.</div> : <>
       <label style={{ ...labelStyle, maxWidth: 420, marginBottom: 18 }}>Closed session
         <select value={session?.id || ''} onChange={e => setSessionId(e.target.value)} style={inputStyle}>{closed.map(s => <option key={s.id} value={s.id}>{s.name} · {new Date(s.date).toLocaleDateString('en-IN')}</option>)}</select>
       </label>
+      {isAdmin ? <button onClick={resetSettlement} style={{ ...btnStyle(session.settlementCleared ? 'ghost' : 'danger'), marginBottom: 16 }}>{session.settlementCleared ? 'Restore Settlement' : 'Reset Settlement'}</button> : <button onClick={promptLogin} style={{ ...btnStyle('ghost', 'sm'), marginBottom: 16 }}>Admin login to reset</button>}
+      {session.settlementCleared ? <div style={{ color: '#86efac', textAlign: 'center', padding: 24 }}>Settlement reset for this session. Restore it if you need the payment plan again.</div> : <>
       {Math.abs(balance) > 0.01 && <div style={{ background: '#3f1d1d', color: '#fecaca', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>The cash-outs are off by {rs(Math.abs(balance))}. Recheck the session before settling.</div>}
       {transfers.map((transfer, index) => {
         const recipient = directoryFor(transfer.to);
@@ -732,8 +738,9 @@ function SettlePage({ store, update, isAdmin, promptLogin }) {
         </Card2>;
       })}
       {transfers.length === 0 && Math.abs(balance) <= 0.01 && <div style={{ color: '#86efac', textAlign: 'center', padding: 32 }}>Everyone is even — no payments needed.</div>}
-      <Card2 style={{ marginTop: 20 }}><div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 10 }}>Player QR directory</div><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>{store.players.map(p => <div key={p.id} style={{ minWidth: 130 }}><div style={{ fontSize: 12, marginBottom: 5 }}>{p.name}</div><QrUpload player={p} update={update} isAdmin={isAdmin} promptLogin={promptLogin} /></div>)}</div></Card2>
+      </>}
     </>}
+    <Card2 style={{ marginTop: 20 }}><div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 6 }}>Permanent player QR directory</div><div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>Upload each player once. Their QR stays available for every future settlement.</div><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>{store.players.map(p => <div key={p.id} style={{ minWidth: 130 }}><div style={{ fontSize: 12, marginBottom: 5 }}>{p.name}</div><QrUpload player={p} update={update} isAdmin={isAdmin} promptLogin={promptLogin} /></div>)}</div></Card2>
   </div>;
 }
 
