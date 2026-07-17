@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "poker-club",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-07-18",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "poker-club",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ]
+}

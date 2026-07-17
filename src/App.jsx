@@ -8,7 +8,6 @@ const CHIP_COLORS = { green: { value: 10, color: "#22c55e", label: "Green" }, re
 
 // ─── STORAGE + SYNC ───────────────────────────────────────────────────────────
 const STORE_KEY = "poker_app_v3";
-const AUTH_KEY = "poker_admin_auth";
 const broadcast = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("poker_sync") : null;
 
 function loadStore() {
@@ -17,6 +16,7 @@ function loadStore() {
 // Debounced, retried remote save queue
 let __saveTimer = null;
 let __pendingRemote = null;
+let __revision = 0;
 
 async function __processRemoteSave() {
   if (!__pendingRemote) return;
@@ -30,11 +30,18 @@ async function __processRemoteSave() {
     const res = await fetch('/api/store', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: STORE_KEY, value: item.data })
+      body: JSON.stringify({ value: item.data, revision: item.revision })
     });
+    if (res.status === 409) {
+      const latest = await fetch('/api/store').then(r => r.ok ? r.json() : null);
+      if (latest?.value) { __revision = latest.revision; localStorage.setItem(STORE_KEY, JSON.stringify(latest.value)); broadcast?.postMessage({ type: 'sync', data: latest.value }); }
+      __pendingRemote = null;
+      return;
+    }
     if (!res.ok) throw new Error('remote save failed');
+    __revision = (await res.json()).revision;
     __pendingRemote = null;
-  } catch (e) {
+  } catch {
     item.attempts = (item.attempts || 0) + 1;
     if (item.attempts < 6) {
       const backoff = Math.min(30000, 1000 * 2 ** item.attempts);
@@ -46,11 +53,11 @@ async function __processRemoteSave() {
 
 function saveStore(data) {
   // Persist locally first for instant UX
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch { void 0; }
   broadcast?.postMessage({ type: 'sync', data });
 
   // Schedule debounced remote save (replace any pending)
-  __pendingRemote = { data, attempts: 0 };
+  __pendingRemote = { data, revision: __revision, attempts: 0 };
   if (__saveTimer) clearTimeout(__saveTimer);
   __saveTimer = setTimeout(__processRemoteSave, 1000);
 }
@@ -69,8 +76,8 @@ async function loginCheck(username, password) {
 }
 
 // Retry pending saves when back online or when tab becomes visible
-window.addEventListener && window.addEventListener('online', () => { if (!__pendingRemote) return; __processRemoteSave(); });
-document.addEventListener && document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && __pendingRemote) __processRemoteSave(); });
+if (typeof window !== 'undefined') window.addEventListener('online', () => { if (__pendingRemote) __processRemoteSave(); });
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && __pendingRemote) __processRemoteSave(); });
 function defaultStore() {
   return { sessions: [], leaderboard: [], dealerHands: [], currentSession: null, players: [] };
 }
@@ -127,7 +134,7 @@ export default function PokerApp() {
   const [store, setStore] = useState(loadStore);
   const [page, setPage] = useState("home");
   const [activeSession, setActiveSession] = useState(null);
-  const [loggedIn, setLoggedIn] = useState(() => typeof window !== 'undefined' && localStorage.getItem(AUTH_KEY) === 'true');
+  const [loggedIn, setLoggedIn] = useState(false);
   const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -141,20 +148,24 @@ export default function PokerApp() {
     return () => broadcast.removeEventListener("message", handler);
   }, []);
 
-  // Try loading remote store from server (Vercel API -> Supabase). Falls back to localStorage.
+  // Load public data; authorization is checked independently via an HttpOnly cookie.
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch(`/api/store?key=${encodeURIComponent(STORE_KEY)}`);
+        const res = await fetch('/api/store');
         if (!res.ok) return;
         const json = await res.json();
-        if (mounted && json?.value) setStore(json.value);
-      } catch (e) {
+        if (mounted && json?.value && !__pendingRemote) { __revision = json.revision || 0; setStore(json.value); }
+      } catch {
         // ignore - remote not configured or offline
       }
     })();
     return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/login').then(r => r.ok ? r.json() : { authenticated: false }).then(r => setLoggedIn(Boolean(r.authenticated))).catch(() => setLoggedIn(false));
   }, []);
 
   const update = useCallback((fn) => {
@@ -171,6 +182,7 @@ export default function PokerApp() {
     { key: "home", label: "Sessions", icon: "🃏" },
     { key: "players", label: "Players", icon: "👥" },
     { key: "leaderboard", label: "Leaderboard", icon: "🏆" },
+    { key: "settle", label: "Settle", icon: "💸" },
     { key: "dealer", label: "The Dealer", icon: "🎩" },
   ];
 
@@ -183,8 +195,8 @@ export default function PokerApp() {
     setLoginLoading(true);
     try {
       await loginCheck(loginUser.trim(), loginPass);
-      localStorage.setItem(AUTH_KEY, 'true');
       setLoggedIn(true);
+      if (__pendingRemote) __processRemoteSave();
       setShowLoginPanel(false);
     } catch (err) {
       setLoginError(err.message);
@@ -194,8 +206,7 @@ export default function PokerApp() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem(AUTH_KEY);
-    setLoggedIn(false);
+    fetch('/api/login', { method: 'DELETE' }).finally(() => setLoggedIn(false));
     setLoginUser('');
     setLoginPass('');
     setLoginError('');
@@ -207,12 +218,12 @@ export default function PokerApp() {
       <div style={{ position: "fixed", inset: 0, backgroundImage: "radial-gradient(ellipse at 50% 0%, #1a0a0a 0%, #0f0a0a 70%)", pointerEvents: "none", zIndex: 0 }} />
 
       {/* NAV */}
-      <nav style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(15,10,10,0.95)", borderBottom: "1px solid #3d1515", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", backdropFilter: "blur(10px)" }}>
+      <nav className="app-nav" style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(15,10,10,0.95)", borderBottom: "1px solid #3d1515", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", backdropFilter: "blur(10px)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0" }}>
           <span style={{ fontSize: 22 }}>♠</span>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: 2, color: "#c9a84c", textTransform: "uppercase" }}>AllInForBluff</span>
         </div>
-        <div style={{ display: "flex", gap: 4, alignItems: 'center' }}>
+        <div className="nav-links" style={{ display: "flex", gap: 4, alignItems: 'center' }}>
           {navItems.map(n => (
             <button key={n.key} onClick={() => { setPage(n.key); setActiveSession(null); }} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: page === n.key ? "#c9a84c" : "transparent", color: page === n.key ? "#0a0f1a" : "#9ca3af", fontWeight: page === n.key ? 700 : 400, cursor: "pointer", fontSize: 13, transition: "all 0.2s" }}>
               {n.icon} {n.label}
@@ -230,7 +241,7 @@ export default function PokerApp() {
         </div>
       </nav>
 
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "24px 16px" }}>
+      <div className="app-main" style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "24px 16px" }}>
         {showLoginPanel && (
           <div style={{ marginBottom: 24 }}>
             <LoginPage
@@ -252,6 +263,7 @@ export default function PokerApp() {
         {page === "session" && session && <SessionPage session={session} store={store} update={update} onBack={() => { setPage("home"); setActiveSession(null); }} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
         {page === "players" && <PlayersPage store={store} update={update} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
         {page === "leaderboard" && <LeaderboardPage store={store} />}
+        {page === "settle" && <SettlePage store={store} update={update} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
         {page === "dealer" && <DealerPage store={store} update={update} isAdmin={loggedIn} promptLogin={() => setShowLoginPanel(true)} />}
       </div>
     </div>
@@ -457,7 +469,7 @@ function SessionPage({ session, store, update, onBack, isAdmin, promptLogin }) {
     if (!selectedPlayer) return;
     const player = store.players.find(p => p.id === selectedPlayer);
     if (!player) return;
-    const newPlayer = { id: uid(), name: player.name, buyIn: newBuyIn, chips: newBuyIn * session.chipRatio, loans: 0, cashout: null, cashoutChips: null };
+    const newPlayer = { id: uid(), playerId: player.id, name: player.name, buyIn: newBuyIn, chips: newBuyIn * session.chipRatio, loans: 0, cashout: null, cashoutChips: null };
     update(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === session.id ? { ...s, players: [...s.players, newPlayer] } : s) }));
     setSelectedPlayer("");
     setNewBuyIn(session.buyIn);
@@ -655,6 +667,74 @@ function PlayerRow({ player, session, update, showCashout, showLoan, onCashout, 
       )}
     </Card2>
   );
+}
+
+// ─── SETTLEMENT PAGE ──────────────────────────────────────────────────────────
+function settlementTransfers(players) {
+  const debtors = players.filter(p => pnl(p) < -0.004).map(p => ({ ...p, amount: Math.round(-pnl(p) * 100) }));
+  const creditors = players.filter(p => pnl(p) > 0.004).map(p => ({ ...p, amount: Math.round(pnl(p) * 100) }));
+  const transfers = [];
+  let debtor = 0; let creditor = 0;
+  // Each payment clears at least one person, producing no more than n−1 payments.
+  while (debtor < debtors.length && creditor < creditors.length) {
+    const amount = Math.min(debtors[debtor].amount, creditors[creditor].amount);
+    transfers.push({ from: debtors[debtor], to: creditors[creditor], amount: amount / 100 });
+    debtors[debtor].amount -= amount; creditors[creditor].amount -= amount;
+    if (debtors[debtor].amount === 0) debtor += 1;
+    if (creditors[creditor].amount === 0) creditor += 1;
+  }
+  return transfers;
+}
+
+function QrUpload({ player, update, isAdmin, promptLogin }) {
+  const upload = event => {
+    if (!isAdmin) { promptLogin(); return; }
+    const file = event.target.files?.[0];
+    if (!file || !file.type.startsWith('image/') || file.size > 5_000_000) return alert('Choose an image smaller than 5 MB.');
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(512 / image.width, 512 / image.height, 1);
+      const canvas = document.createElement('canvas'); canvas.width = Math.round(image.width * scale); canvas.height = Math.round(image.height * scale);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      const qrCode = canvas.toDataURL('image/png');
+      update(prev => ({ ...prev, players: prev.players.map(p => p.id === player.id ? { ...p, qrCode } : p) }));
+      URL.revokeObjectURL(image.src);
+    };
+    image.src = URL.createObjectURL(file);
+  };
+  return <label style={{ ...btnStyle('ghost', 'sm'), display: 'inline-block', cursor: 'pointer' }}>{player.qrCode ? 'Replace QR' : 'Upload QR'}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={upload} style={{ display: 'none' }} /></label>;
+}
+
+function SettlePage({ store, update, isAdmin, promptLogin }) {
+  const closed = store.sessions.filter(s => s.closed);
+  const [sessionId, setSessionId] = useState(() => closed[0]?.id || '');
+  const session = closed.find(s => s.id === sessionId) || closed[0];
+  const transfers = session ? settlementTransfers(session.players) : [];
+  const directoryFor = player => store.players.find(p => p.id === player.playerId) || store.players.find(p => p.name === player.name);
+  const balance = session ? session.players.reduce((sum, p) => sum + pnl(p), 0) : 0;
+  return <div>
+    <div style={{ marginBottom: 22 }}>
+      <h1 style={{ fontSize: 24, color: '#c9a84c', margin: '0 0 6px' }}>💸 Settle up</h1>
+      <div style={{ fontSize: 13, color: '#9ca3af' }}>Minimal payment plan for a closed session. Scan the receiver’s QR code to pay.</div>
+    </div>
+    {closed.length === 0 ? <div style={{ textAlign: 'center', color: '#6b7280', padding: '60px 0' }}>Close a session after everyone cashes out to create a settlement plan.</div> : <>
+      <label style={{ ...labelStyle, maxWidth: 420, marginBottom: 18 }}>Closed session
+        <select value={session?.id || ''} onChange={e => setSessionId(e.target.value)} style={inputStyle}>{closed.map(s => <option key={s.id} value={s.id}>{s.name} · {new Date(s.date).toLocaleDateString('en-IN')}</option>)}</select>
+      </label>
+      {Math.abs(balance) > 0.01 && <div style={{ background: '#3f1d1d', color: '#fecaca', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>The cash-outs are off by {rs(Math.abs(balance))}. Recheck the session before settling.</div>}
+      {transfers.map((transfer, index) => {
+        const recipient = directoryFor(transfer.to);
+        return <Card2 key={`${transfer.from.id}-${transfer.to.id}-${index}`} style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 180 }}><div style={{ color: '#fca5a5', fontWeight: 700 }}>{transfer.from.name}</div><div style={{ fontSize: 12, color: '#9ca3af', margin: '4px 0' }}>pays</div><div style={{ color: '#86efac', fontWeight: 700 }}>{transfer.to.name}</div><div style={{ color: '#c9a84c', fontSize: 22, fontWeight: 800, marginTop: 5 }}>{rs(transfer.amount)}</div></div>
+            <div style={{ textAlign: 'center' }}>{recipient?.qrCode ? <img src={recipient.qrCode} alt={`QR code for ${transfer.to.name}`} style={{ width: 128, height: 128, objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 4 }} /> : <div style={{ color: '#9ca3af', fontSize: 12, maxWidth: 140 }}>No QR uploaded for {transfer.to.name}</div>} {recipient && <div style={{ marginTop: 8 }}><QrUpload player={recipient} update={update} isAdmin={isAdmin} promptLogin={promptLogin} /></div>}</div>
+          </div>
+        </Card2>;
+      })}
+      {transfers.length === 0 && Math.abs(balance) <= 0.01 && <div style={{ color: '#86efac', textAlign: 'center', padding: 32 }}>Everyone is even — no payments needed.</div>}
+      <Card2 style={{ marginTop: 20 }}><div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 10 }}>Player QR directory</div><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>{store.players.map(p => <div key={p.id} style={{ minWidth: 130 }}><div style={{ fontSize: 12, marginBottom: 5 }}>{p.name}</div><QrUpload player={p} update={update} isAdmin={isAdmin} promptLogin={promptLogin} /></div>)}</div></Card2>
+    </>}
+  </div>;
 }
 
 // ─── LEADERBOARD PAGE ─────────────────────────────────────────────────────────
@@ -900,7 +980,6 @@ function DealerPage({ store, update, isAdmin, promptLogin }) {
 }
 
 function HandDisplay({ hand }) {
-  const boardCards = hand.board.filter(Boolean);
   return (
     <div style={{ background: "#160d0d", border: "1px solid #3d1515", borderRadius: 12, overflow: "hidden" }}>
       {/* Table felt */}
